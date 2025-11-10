@@ -9,6 +9,8 @@ from google.cloud import storage
 from wan.configs import WAN_CONFIGS, SIZE_CONFIGS, MAX_AREA_CONFIGS, SUPPORTED_SIZES
 import wan
 from wan.utils.utils import save_video
+import requests
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wan-t2v-serverless")
@@ -58,16 +60,21 @@ def get_pipeline():
 def save_video_to_file(video, save_path, fps):
     save_video(video[None], save_path, fps=fps, nrow=1, normalize=True, value_range=(-1, 1))
 
+def fetch_gcs_json_from_drive(file_id: str) -> dict:
+    """Download a JSON file from Google Drive given its file ID"""
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    r = requests.get(url)
+    r.raise_for_status()
+    return r.json()
+
 def upload_to_gcs_public(source_file, bucket_name="runpod_bucket_testing"):
-    gcs_json = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS_JSON")
-    if not gcs_json:
-        raise RuntimeError("Missing GOOGLE_APPLICATION_CREDENTIALS_JSON env var")
+    # Fetch the GCS service account JSON from Drive
+    gcs_json_dict = fetch_gcs_json_from_drive("1leNukepERYsBmoKSYTbqUjGb-pQvwQlz")  # Replace with your Drive file ID
     creds_path = "/tmp/gcs_creds.json"
     with open(creds_path, "w") as f:
-        f.write(gcs_json)
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = creds_path
+        json.dump(gcs_json_dict, f)
 
-    client = storage.Client()
+    client = storage.Client.from_service_account_json(creds_path)
     bucket = client.bucket(bucket_name)
     destination_blob = f"t2v_videos/{uuid.uuid4()}.mp4"
     blob = bucket.blob(destination_blob)
