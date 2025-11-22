@@ -22,7 +22,7 @@ PIPELINE = None
 PIPELINE_CFG = WAN_CONFIGS["t2v-A14B"]
 CKPT_DIR = "./Wan2.2-T2V-A14B"
 LIGHTNING_DIR = "./Wan2.2-Lightning"
-KEEP_LORA = "Wan2.2-T2V-A14B-4steps-lora-rank64-Seko-V2.0"
+KEEP_LORA = "Wan2.2-T2V-A14B-4steps-lora-250928"
 SAVE_DIR = "test_results"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
