@@ -107,7 +107,7 @@ def generate_t2v(job):
                 offload_model=OFFLOAD_MODEL
             )
             save_path = os.path.join(SAVE_DIR, f"t2v_{uuid.uuid4()}.mp4")
-            save_video_to_file(video, save_path, fps=PIPELINE_CFG.sample_fps)
+            save_video_to_file(video, save_path, fps=20)
             del video
             torch.cuda.synchronize()
 
