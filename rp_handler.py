@@ -2,15 +2,15 @@ import os
 import uuid
 import logging
 import gc
-from datetime import timedelta
+import json
 import torch
 import runpod
-from google.cloud import storage
-from wan.configs import WAN_CONFIGS, SIZE_CONFIGS, MAX_AREA_CONFIGS, SUPPORTED_SIZES
 import wan
+from datetime import timedelta
+from wan.configs import WAN_CONFIGS, SIZE_CONFIGS, MAX_AREA_CONFIGS, SUPPORTED_SIZES
 from wan.utils.utils import save_video
 import requests
-import json
+import boto3
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wan-t2v-serverless")
@@ -36,6 +36,20 @@ for folder in os.listdir(LIGHTNING_DIR):
     if os.path.isdir(folder_path) and folder != KEEP_LORA:
         os.system(f"rm -rf {folder_path}")
 
+# -------------------- AWS S3 Setup --------------------
+AWS_ACCESS_KEY = os.environ.get("AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.environ.get("AWS_SECRET_KEY")
+REGION = os.environ.get("AWS_REGION", "us-east-2")
+BUCKET_NAME = os.environ.get("AWS_BUCKET_NAME", "runpodstorageforserverless")
+
+s3 = boto3.client(
+    "s3",
+    aws_access_key_id=AWS_ACCESS_KEY,
+    aws_secret_access_key=AWS_SECRET_KEY,
+    region_name=REGION
+)
+
+# -------------------- Model Setup --------------------
 def get_pipeline():
     global PIPELINE
     if PIPELINE is not None:
@@ -60,28 +74,26 @@ def get_pipeline():
 def save_video_to_file(video, save_path, fps):
     save_video(video[None], save_path, fps=fps, nrow=1, normalize=True, value_range=(-1, 1))
 
-def fetch_gcs_json_from_drive(file_id: str) -> dict:
-    """Download a JSON file from Google Drive given its file ID"""
-    url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    r = requests.get(url)
-    r.raise_for_status()
-    return r.json()
+# -------------------- S3 Upload --------------------
+def upload_to_s3_public(source_file, folder="t2v_videos"):
+    """
+    Upload a local file to S3 under the specified folder.
+    Returns the public URL (bucket must allow public read via policy).
+    """
+    destination_key = f"{folder}/{uuid.uuid4()}.mp4"
+    content_type = "video/mp4"
 
-def upload_to_gcs_public(source_file, bucket_name="runpod_bucket_testing"):
-    # Fetch the GCS service account JSON from Drive
-    gcs_json_dict = fetch_gcs_json_from_drive("1leNukepERYsBmoKSYTbqUjGb-pQvwQlz")  # Replace with your Drive file ID
-    creds_path = "/tmp/gcs_creds.json"
-    with open(creds_path, "w") as f:
-        json.dump(gcs_json_dict, f)
+    s3.upload_file(
+        Filename=source_file,
+        Bucket=BUCKET_NAME,
+        Key=destination_key,
+        ExtraArgs={"ContentType": content_type}
+    )
 
-    client = storage.Client.from_service_account_json(creds_path)
-    bucket = client.bucket(bucket_name)
-    destination_blob = f"t2v_videos/{uuid.uuid4()}.mp4"
-    blob = bucket.blob(destination_blob)
-    blob.upload_from_filename(source_file)
-    url = blob.generate_signed_url(expiration=timedelta(hours=1))
-    return url
+    public_url = f"https://{BUCKET_NAME}.s3.amazonaws.com/{destination_key}"
+    return public_url
 
+# -------------------- Generation Handler --------------------
 def generate_t2v(job):
     try:
         inputs = job.get("input", {})
@@ -111,8 +123,8 @@ def generate_t2v(job):
             del video
             torch.cuda.synchronize()
 
-        gcs_url = upload_to_gcs_public(save_path)
-        return {"status": "success", "gcs_url": gcs_url, "seed": seed}
+        s3_url = upload_to_s3_public(save_path)
+        return {"status": "success", "s3_url": s3_url, "seed": seed}
 
     except Exception as e:
         logger.exception("Generation failed")
