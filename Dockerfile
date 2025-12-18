@@ -46,7 +46,7 @@ WORKDIR /workspace/Wan2.2-Lightning
 RUN pip install runpod librosa decord hf_transfer
 RUN pip install flash_attn --no-build-isolation
 RUN pip install -r requirements.txt
-RUN pip install google-cloud-storage
+RUN pip install boto3
 # --------------------------
 # GPU environment (optional)
 # --------------------------
